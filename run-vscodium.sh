@@ -54,7 +54,7 @@ fi
 docker run \
     -d \
     --rm \
-    --name vscodium-dockered \
+    --name ${DOCKER_CONTAINER_NAME} \
     --user 1000:1000 \
     --security-opt seccomp=unconfined \
     --network host \
