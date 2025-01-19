@@ -1,0 +1,4 @@
+# First exclude everything
+*
+# Then include only what you want
+!Dockerfile
