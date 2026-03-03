@@ -1,0 +1,10 @@
+
+.env*
+.jupyter/
+*.log
+core
+*.gz
+*.vsix
+.ssh/
+commit.txt**/*.tmp
+**/*.tmp.*
