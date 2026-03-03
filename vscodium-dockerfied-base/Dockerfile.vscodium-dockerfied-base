@@ -1,0 +1,91 @@
+# syntax=docker/dockerfile:1.4
+FROM debian:trixie
+
+# Install dependencies needed for VSCodium
+RUN apt-get update && apt-get install -y \
+    libasound2 \
+    libatk1.0-0 \
+    libcairo2 \
+    libcups2 \
+    libdbus-1-3 \
+    libexpat1 \
+    libfontconfig1 \
+    libgbm1 \
+    libglib2.0-0 \
+    libgtk-3-0 \
+    libnspr4 \
+    libnss3 \
+    libpango-1.0-0 \
+    libpangocairo-1.0-0 \
+    libsecret-1-0 \
+    libstdc++6 \
+    libx11-6 \
+    libx11-xcb1 \
+    libxcb1 \
+    libxcomposite1 \
+    libxcursor1 \
+    libxdamage1 \
+    libxext6 \
+    libxfixes3 \
+    libxi6 \
+    libxkbfile1 \
+    libxrandr2 \
+    libxrender1 \
+    libxss1 \
+    libxtst6 \
+    libcurl4 \
+    xdg-utils \
+    libwayland-client0 \
+    libwayland-cursor0 \
+    libwayland-egl1 \
+    libwayland-server0 \
+    mesa-utils \
+    x11-utils \
+    wget curl \
+    jq
+
+# Dont remove lists because other layers will use
+#    && rm -rf /var/lib/apt/lists/*
+
+# VSCodium version passed from top
+ARG VSCODIUM_VERSION=1.109.41146
+ARG CLIENT_USERNAME=${CLIENT_USERNAME:-codium}
+ENV CLIENT_USERNAME=${CLIENT_USERNAME}
+
+############## USER CREATION
+# Create a non-root user and group
+# Do this first so that /home/${USERNAME} directory exists
+ARG USER_UID=1000
+ARG USER_GID=$USER_UID
+
+RUN groupadd --gid $USER_GID ${CLIENT_USERNAME} \
+    && useradd --uid $USER_UID --gid $USER_GID -m ${CLIENT_USERNAME}
+
+# Remove root password for security
+RUN passwd -d root
+##############
+
+
+# Download and install VSCodium
+RUN wget https://github.com/VSCodium/vscodium/releases/download/${VSCODIUM_VERSION}/codium_${VSCODIUM_VERSION}_amd64.deb \
+    && apt-get update \
+    && apt-get install -y ./codium_${VSCODIUM_VERSION}_amd64.deb \
+    && rm codium_${VSCODIUM_VERSION}_amd64.deb
+
+# Create directories and set permissions
+RUN mkdir -p /workspace \
+    && mkdir -p /home/${CLIENT_USERNAME}/.config/VSCodium \
+    && mkdir -p /home/${CLIENT_USERNAME}/.vscode-oss \
+    && mkdir -p /tmp/runtime-docker \
+    && chown -R 1000:1000 /workspace /home/${CLIENT_USERNAME} /tmp/runtime-docker
+
+# for debugging
+RUN apt-get update && apt-get install -y iputils-ping net-tools lsof nmap
+
+ARG CACHE_BUST=7
+RUN test ${CACHE_BUST} -ne 0 || echo never
+COPY vscodium-init-config.sh /usr/local/bin/vscodium-init-config.sh
+RUN chmod +x /usr/local/bin/vscodium-init-config.sh
+
+COPY start-vscodium-base.sh /usr/local/bin/start-vscodium-base.sh
+RUN chmod +x /usr/local/bin/start-vscodium-base.sh
