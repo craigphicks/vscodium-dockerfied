@@ -3,9 +3,6 @@ FROM vscodium-dockerfied-base-${VSCODIUM_VER}.img:latest
 
 USER ${CLIENT_USERNAME}
 
-ARG CACHE_BEST=2
-RUN test ${CACHE_BUST} -ne 0 || echo never
-
 COPY --chown=${CLIENT_USERNAME}:${CLIENT_USERNAME} vscodium-standalone-start.sh /usr/local/bin/vscodium-standalone-start.sh
 RUN chmod +x /usr/local/bin/vscodium-standalone-start.sh
 

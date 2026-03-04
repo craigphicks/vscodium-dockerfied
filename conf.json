@@ -1,0 +1,18 @@
+{
+    "skip_build": false,
+    "standalone_args": {
+        "network": "host"
+    },
+    "remoss_args": {
+    },
+    "docker_build_args": {
+        "VSCODIUM_VER": "1.109.41146",
+        "CLIENT_USERNAME": "codium",
+        "INSTALL_DEBUG_TOOLS": 1
+    },
+    "docker_run_args": {
+        "HOST_WORKSPACE": "/home/craig/github",
+        "HOST_VSCODIUM_CONFIG_DIR": "/home/craig/.config/VSCodium2",
+        "HOST_VSCODIUM_VSCODE_OSS_DIR": "/home/craig/.vscode-oss.VSCodium2"
+    }
+}
