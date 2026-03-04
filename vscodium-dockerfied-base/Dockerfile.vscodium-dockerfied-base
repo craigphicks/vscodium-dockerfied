@@ -45,7 +45,16 @@ RUN apt-get update && apt-get install -y \
     mesa-utils \
     x11-utils \
     wget curl \
-    jq
+    jq \
+    && rm -rf /var/lib/apt/lists/*
+
+
+ARG INSTALL_DEBUG_TOOLS=0
+RUN if [ "$INSTALL_DEBUG_TOOLS" = "1" ]; then \
+      apt-get update && apt-get install -y --no-install-recommends iputils-ping net-tools lsof nmap && \
+      rm -rf /var/lib/apt/lists/* ; \
+    fi
+
 
 RUN apt-get update && apt-get install -y locales \
  && sed -i 's/# *en_US.UTF-8 UTF-8/en_US.UTF-8 UTF-8/' /etc/locale.gen \
@@ -75,6 +84,17 @@ RUN groupadd --gid $USER_GID ${CLIENT_USERNAME} \
 RUN passwd -d root
 ##############
 
+# --- Git identity (global) for the non-root user ---
+# You can override these at build time with --build-arg GIT_USER_NAME=... --build-arg GIT_USER_EMAIL=...
+ARG GIT_USER_NAME="${CLIENT_USERNAME}"
+ARG GIT_USER_EMAIL="${CLIENT_USERNAME}"
+
+RUN set -eux; \
+    su - "${CLIENT_USERNAME}" -c "git config --global user.name '${GIT_USER_NAME}'"; \
+    su - "${CLIENT_USERNAME}" -c "git config --global user.email '${GIT_USER_EMAIL}'"; \
+    su - "${CLIENT_USERNAME}" -c "git config --global user.useConfigOnly true"; \
+    su - "${CLIENT_USERNAME}" -c "git config --global init.defaultBranch main"
+
 
 # Download and install VSCodium
 RUN wget https://github.com/VSCodium/vscodium/releases/download/${VSCODIUM_VERSION}/codium_${VSCODIUM_VERSION}_amd64.deb \
@@ -89,11 +109,6 @@ RUN mkdir -p /workspace \
     && mkdir -p /tmp/runtime-docker \
     && chown -R 1000:1000 /workspace /home/${CLIENT_USERNAME} /tmp/runtime-docker
 
-# for debugging
-RUN apt-get update && apt-get install -y iputils-ping net-tools lsof nmap
-
-ARG CACHE_BUST=7
-RUN test ${CACHE_BUST} -ne 0 || echo never
 COPY vscodium-init-config.sh /usr/local/bin/vscodium-init-config.sh
 RUN chmod +x /usr/local/bin/vscodium-init-config.sh
 
