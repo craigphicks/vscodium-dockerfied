@@ -34,6 +34,17 @@ Currently supported mode-specific args:
 - remoss_args.network: if set, passed as `--network <value>` (default for remoss is "host" if not provided)
 """
 
+# Change summary:
+# - Add a helper to generate a unique, human-readable suffix: -YYYYMMDD-HHMMSS-mmm (local time)
+# - Use that suffix in docker --name for BOTH standalone + remoss containers
+#
+# Example container name:
+#   vscodium-dockerfied-standalone-20260304-152113-372
+#
+# Notes:
+# - Using milliseconds (mmm) avoids collisions when launching multiple containers quickly.
+# - If you prefer PID instead (like your example “3721”), see the alternate implementation below.
+
 from __future__ import annotations
 
 import argparse
@@ -45,6 +56,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 from collections.abc import Sequence
+from datetime import datetime  # NEW
 
 
 REQUIRED_RUN_ENV_VARS = ["XDG_RUNTIME_DIR", "WAYLAND_DISPLAY", "XAUTHORITY"]
@@ -61,6 +73,14 @@ def run_cmd(cmd: Sequence[str], cwd: None | Path = None, extra_env: None | dict[
     eprint("+", " ".join(cmd))
     subprocess.run(cmd, cwd=str(cwd) if cwd else None, env=env, check=True)
 
+
+def unique_container_suffix() -> str:
+    """
+    Return a suffix like: -YYYYMMDD-HHMMSS-PID (local time).
+    Example: -20260304-152113-3721
+    """
+    now = datetime.now().astimezone()  # local tz-aware
+    return f"-{now:%Y%m%d-%H%M%S}-{os.getpid()}"
 
 def deep_merge(a: dict[str, Any], b: dict[str, Any]) -> dict[str, Any]:
     """Return new dict = a merged with b, where b overrides a. Nested dicts merge recursively."""
@@ -293,9 +313,11 @@ def run_standalone(cfg: Config) -> None:
     run_args = cfg.docker_run_args
     network_args = mode_network_args("standalone", cfg.standalone_args, default_network=None)
 
+    container_name = "vscodium-dockerfied-standalone" + unique_container_suffix()  # NEW
+
     cmd = [
-        "docker", "run", "--rm",
-        "--name", "vscodium-dockerfied-base",
+        "docker", "run", "--rm", "-d",
+        "--name", container_name,  # CHANGED
         *network_args,
         "--shm-size=2gb",
         "-e", "DISPLAY=:0",
@@ -331,9 +353,11 @@ def run_remoss_client(cfg: Config) -> None:
     # original script defaulted to host; preserve that unless overridden
     network_args = mode_network_args("remoss", cfg.remoss_args, default_network="host")
 
+    container_name = "vscodium-dockerfied-remoss-client" + unique_container_suffix()  # NEW
+
     cmd = [
-        "docker", "run", "--rm",
-        "--name", "vscodium-dockerfied-remoss-client",
+        "docker", "run", "--rm", "-d",
+        "--name", container_name,  # CHANGED
         *network_args,
         "--shm-size=2gb",
         "-e", "DISPLAY=:0",
