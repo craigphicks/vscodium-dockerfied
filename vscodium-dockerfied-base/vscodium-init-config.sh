@@ -14,14 +14,15 @@ VSCODE_OSS_DIR="/home/${CLIENT_USERNAME}/.vscode-oss"
 sync ${VSCODIUM_CONFIG_DIR}
 sync ${VSCODE_OSS_DIR}
 
-echo "=== ls -alt ${VSCODIUM_CONFIG_DIR} ==="
-ls -alt ${VSCODIUM_CONFIG_DIR}
+# echo "=== ls -alt ${VSCODIUM_CONFIG_DIR} ==="
+# ls -alt ${VSCODIUM_CONFIG_DIR}
 
-echo "=== ls -alt ${VSCODE_OSS_DIR} ==="
-ls -alt ${VSCODE_OSS_DIR}
+# echo "=== ls -alt ${VSCODE_OSS_DIR} ==="
+# ls -alt ${VSCODE_OSS_DIR}
 
-echo ===================
+# echo ===================
 
+# if there is nothing there already add a minimal setting to prevent tedious startup
 
 if [ ! -f ${VSCODIUM_CONFIG_DIR_USER}/settings.json ]; then
     if [ ! -d  ${VSCODIUM_CONFIG_DIR_USER} ]; then
@@ -42,19 +43,3 @@ cat << 'EOF' > ${VSCODIUM_CONFIG_DIR_USER}/settings.json
 EOF
     chmod 644 ${VSCODIUM_CONFIG_DIR_USER}/settings.json
 fi
-
-
-# Moved to vscodium-dockerfied/vscodium-dockerfied-remoss-client/config-vscode-oss-argv-json.sh
-# because xaberus.remote-oss is not needed by standalone
-# if [ ! -s "${VSCODE_OSS_DIR}/argv.json" ]; then
-#   cat <<'EOF' > "${VSCODE_OSS_DIR}/argv.json"
-# {
-#     "enable-crash-reporter": false,
-#     "enable-proposed-api": [
-#         "xaberus.remote-oss"
-#     ]
-# }
-# EOF
-#   chmod 644 "${VSCODE_OSS_DIR}/argv.json"
-# fi
-
