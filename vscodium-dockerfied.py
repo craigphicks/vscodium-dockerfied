@@ -56,12 +56,38 @@ def eprint(*args: object) -> None:
     print(*args, file=sys.stderr)
 
 
-def run_cmd(cmd: Sequence[str], cwd: None | Path = None, extra_env: None | dict[str, str] = None) -> None:
+def run_cmd(
+    cmd: Sequence[str],
+    cwd: None | Path = None,
+    extra_env: None | dict[str, str] = None,
+    *,
+    verbose: bool = False,
+) -> str:
+    """
+    Run a command.
+    - In verbose mode: print "+ <cmd>" and stream subprocess stdout/stderr to the terminal.
+    - In non-verbose mode: capture stdout/stderr and return stdout (decoded/stripped).
+    """
     env = os.environ.copy()
     if extra_env:
         env.update(extra_env)
-    eprint("+", " ".join(cmd))
-    subprocess.run(cmd, cwd=str(cwd) if cwd else None, env=env, check=True)
+
+    if verbose:
+        eprint("+", " ".join(cmd))
+        subprocess.run(cmd, cwd=str(cwd) if cwd else None, env=env, check=True)
+        return ""
+
+    # quiet mode
+    p = subprocess.run(
+        cmd,
+        cwd=str(cwd) if cwd else None,
+        env=env,
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    return (p.stdout or "").strip()
 
 
 def unique_container_suffix() -> str:
@@ -141,6 +167,7 @@ class Config:
     repo_root: Path
 
     skip_build: bool
+    verbose: bool
 
     standalone_args: dict[str, Any]
     remoss_args: dict[str, Any]
@@ -153,6 +180,7 @@ class Config:
         cfg = load_config()
 
         skip_build = bool(cfg.get("skip_build", False))
+        verbose = bool(cfg.get("verbose", False))
 
         standalone_args = cfg.get("standalone_args", {}) or {}
         remoss_args = cfg.get("remoss_args", {}) or {}
@@ -180,6 +208,8 @@ class Config:
         # CLI overrides (override JSON)
         if args.skip_build is not None:
             skip_build = args.skip_build
+        if args.verbose is not None:
+            verbose = args.verbose
 
         if args.vscodium_ver is not None:
             docker_build_args["VSCODIUM_VER"] = args.vscodium_ver
@@ -216,6 +246,7 @@ class Config:
         return Config(
             repo_root=repo_root,
             skip_build=skip_build,
+            verbose=verbose,
             standalone_args=standalone_args,
             remoss_args=remoss_args,
             docker_build_args=docker_build_args,
@@ -263,8 +294,7 @@ def build_base(cfg: Config) -> None:
         *docker_build_arg_flags(cfg.docker_build_args, extra={"VSCODIUM_VERSION": v}),
         ".",
     ]
-    run_cmd(["ls", "-alt"], cwd=workdir)
-    run_cmd(cmd, cwd=workdir, extra_env={"DOCKER_BUILDKIT": "1"})
+    run_cmd(cmd, cwd=workdir, extra_env={"DOCKER_BUILDKIT": "1"}, verbose=cfg.verbose)
 
 
 def build_standalone(cfg: Config) -> None:
@@ -280,8 +310,7 @@ def build_standalone(cfg: Config) -> None:
         *docker_build_arg_flags(cfg.docker_build_args),
         ".",
     ]
-    run_cmd(["ls", "-alt"], cwd=workdir)
-    run_cmd(cmd, cwd=workdir, extra_env={"DOCKER_BUILDKIT": "1"})
+    run_cmd(cmd, cwd=workdir, extra_env={"DOCKER_BUILDKIT": "1"}, verbose=cfg.verbose)
 
 
 def build_remoss_client(cfg: Config) -> None:
@@ -297,12 +326,17 @@ def build_remoss_client(cfg: Config) -> None:
         *docker_build_arg_flags(cfg.docker_build_args),
         ".",
     ]
-    run_cmd(["ls", "-alt"], cwd=workdir)
-    run_cmd(cmd, cwd=workdir, extra_env={"DOCKER_BUILDKIT": "1"})
+    run_cmd(cmd, cwd=workdir, extra_env={"DOCKER_BUILDKIT": "1"}, verbose=cfg.verbose)
 
 
-def show_images() -> None:
-    run_cmd(["docker", "image", "ls", "--format", "table {{.Repository}}\t{{.Tag}}\t{{.ID}}\t{{.Size}}\t{{.CreatedSince}}"])
+def show_images(cfg: Config) -> None:
+    # Only show in verbose mode (keeps quiet output clean)
+    if not cfg.verbose:
+        return
+    run_cmd(
+        ["docker", "image", "ls", "--format", "table {{.Repository}}\t{{.Tag}}\t{{.ID}}\t{{.Size}}\t{{.CreatedSince}}"],
+        verbose=True,
+    )
 
 
 def run_standalone(cfg: Config) -> None:
@@ -341,8 +375,14 @@ def run_standalone(cfg: Config) -> None:
         "-v", f"{env['XDG_RUNTIME_DIR']}/pulse:/tmp/runtime-docker/pulse",
         img,
     ]
-    run_cmd(["ls", "-alt"], cwd=workdir)
-    run_cmd(cmd, cwd=workdir)
+    out = run_cmd(cmd, cwd=workdir, verbose=cfg.verbose)
+
+    # Quiet mode: print only the name
+    if not cfg.verbose:
+        print(container_name)
+        return
+
+    # Verbose mode: docker already printed; optionally show container id too (out is empty in verbose)
     eprint(f"Started container: {container_name}")
 
 
@@ -355,7 +395,6 @@ def run_remoss_client(cfg: Config) -> None:
     img = image_name("remoss-client", v)
 
     run_args = cfg.docker_run_args
-    # original script defaulted to host; preserve that unless overridden
     network_args = mode_network_args("remoss", cfg.remoss_args, default_network="host")
 
     container_name = "vscodium-dockerfied-remoss-client" + unique_container_suffix()
@@ -373,7 +412,6 @@ def run_remoss_client(cfg: Config) -> None:
         "-e", "XAUTHORITY=/tmp/.Xauthority",
         "-e", "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus",
         "-e", "DOCKER_BUILDKIT=1",
-        "-e", "DOCKER_BUILDKIT=1",
         "-v", f"{run_args['HOST_VSCODIUM_CONFIG_DIR']}:/home/{user}/.config/VSCodium",
         "-v", f"{run_args['HOST_VSCODIUM_VSCODE_OSS_DIR']}:/home/{user}/.vscode-oss",
         "-v", "/tmp/.X11-unix:/tmp/.X11-unix",
@@ -384,14 +422,28 @@ def run_remoss_client(cfg: Config) -> None:
         "-v", f"{env['XDG_RUNTIME_DIR']}/pulse:/tmp/runtime-docker/pulse",
         img,
     ]
-    run_cmd(["ls", "-alt"], cwd=workdir)
-    run_cmd(cmd, cwd=workdir)
+    out = run_cmd(cmd, cwd=workdir, verbose=cfg.verbose)
+
+    if not cfg.verbose:
+        print(container_name)
+        return
+
     eprint(f"Started container: {container_name}")
 
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="vscodium-dockerfied.py")
     sub = p.add_subparsers(dest="command", required=True)
+
+    # global flag(s) – work for both build and run
+    p.add_argument(
+        "--verbose",
+        "-v",
+        dest="verbose",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Verbose output (show docker output). Default: quiet (print only container name on run).",
+    )
 
     p_build = sub.add_parser("build", help="Build docker images")
     p_build.add_argument("target", choices=["standalone", "remoss", "base"], help="What to build")
@@ -421,7 +473,8 @@ def main(argv: Sequence[str]) -> int:
 
     if args.command == "build":
         if cfg.skip_build:
-            eprint("skip_build=true; build command will not build anything.")
+            if cfg.verbose:
+                eprint("skip_build=true; build command will not build anything.")
             return 0
 
         if args.target == "base":
@@ -435,7 +488,7 @@ def main(argv: Sequence[str]) -> int:
         else:
             raise ValueError(args.target)
 
-        show_images()
+        show_images(cfg)
         return 0
 
     if args.command == "run":
@@ -445,7 +498,7 @@ def main(argv: Sequence[str]) -> int:
                 build_standalone(cfg)
             else:
                 build_remoss_client(cfg)
-            show_images()
+            show_images(cfg)
 
         if args.mode == "standalone":
             run_standalone(cfg)
