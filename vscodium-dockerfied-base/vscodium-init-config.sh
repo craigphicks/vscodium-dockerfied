@@ -1,5 +1,6 @@
 #!/bin/bash
-set -ex
+set -e
+#set -x
 VSCODIUM_CONFIG_DIR="/home/${CLIENT_USERNAME}/.config/VSCodium"
 VSCODIUM_CONFIG_DIR_USER="${VSCODIUM_CONFIG_DIR}/User"
 VSCODE_OSS_DIR="/home/${CLIENT_USERNAME}/.vscode-oss"
@@ -43,15 +44,17 @@ EOF
 fi
 
 
-if [ ! -s "${VSCODE_OSS_DIR}/argv.json" ]; then
-  cat <<'EOF' > "${VSCODE_OSS_DIR}/argv.json"
-{
-    "enable-crash-reporter": false,
-    "enable-proposed-api": [
-        "xaberus.remote-oss"
-    ]
-}
-EOF
-  chmod 644 "${VSCODE_OSS_DIR}/argv.json"
-fi
+# Moved to vscodium-dockerfied/vscodium-dockerfied-remoss-client/config-vscode-oss-argv-json.sh
+# because xaberus.remote-oss is not needed by standalone
+# if [ ! -s "${VSCODE_OSS_DIR}/argv.json" ]; then
+#   cat <<'EOF' > "${VSCODE_OSS_DIR}/argv.json"
+# {
+#     "enable-crash-reporter": false,
+#     "enable-proposed-api": [
+#         "xaberus.remote-oss"
+#     ]
+# }
+# EOF
+#   chmod 644 "${VSCODE_OSS_DIR}/argv.json"
+# fi
 
