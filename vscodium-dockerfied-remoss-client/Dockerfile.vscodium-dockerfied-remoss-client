@@ -22,8 +22,6 @@ RUN curl -L --fail --show-error --retry 5 -o xaberus.remote-oss-0.0.5.vsix \
 COPY --chown=${CLIENT_USERNAME}:${CLIENT_USERNAME} xaberus.remote-oss-0.0.5.vsix.sha256 ./xaberus.remote-oss-0.0.5.vsix.256
 RUN [ -f xaberus.remote-oss-0.0.5.vsix ] && sha256sum -c xaberus.remote-oss-0.0.5.vsix.256 || exit 1
 
-ARG CACHE_BUST=7
-# Install extension and clean up - still in /home/${CLIENT_USERNAME}/.vsix-tmp
 RUN codium --install-extension xaberus.remote-oss-0.0.5.vsix && \
     rm -rf ./*        # ./* refers to all files in /home/${CLIENT_USERNAME}/.vsix-tmp
 
@@ -38,7 +36,7 @@ WORKDIR /home/${CLIENT_USERNAME}
 #    enables ~/.vscode-oss/argv.json to be modifed with the necessary settings for extension
 #    xaberus.vscode-oss to be inserted into ~/.vscode-oss/argv.json, avoid by hand addition on every startup.
 
-COPY --chown=${CLIENT_USERNAME}:${CLIENT_USERNAME} start-vscodium-remoss-client.sh config-vscode-oss-argv-json.sh merge-xaberus-remote-oss.sh /usr/local/bin/
-RUN chmod +x /usr/local/bin/start-vscodium-remoss-client.sh /usr/local/bin/config-vscode-oss-argv-json.sh /usr/local/bin/merge-xaberus-remote-oss.sh
+COPY --chown=${CLIENT_USERNAME}:${CLIENT_USERNAME} start-vscodium-remoss-client.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/start-vscodium-remoss-client.sh
 
 ENTRYPOINT ["/usr/local/bin/start-vscodium-remoss-client.sh"]
