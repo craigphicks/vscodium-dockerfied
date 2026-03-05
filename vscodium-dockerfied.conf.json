@@ -11,8 +11,8 @@
         "INSTALL_DEBUG_TOOLS": 1
     },
     "docker_run_args": {
-        "HOST_WORKSPACE": "/home/craig/github",
-        "HOST_VSCODIUM_CONFIG_DIR": "/home/craig/.config/VSCodium2",
-        "HOST_VSCODIUM_VSCODE_OSS_DIR": "/home/craig/.vscode-oss.VSCodium2"
+        "HOST_WORKSPACE": "~/github",
+        "HOST_VSCODIUM_CONFIG_DIR": "~/.config/VSCodium2",
+        "HOST_VSCODIUM_VSCODE_OSS_DIR": "~/.vscode-oss.VSCodium2"
     }
 }

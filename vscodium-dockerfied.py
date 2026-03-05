@@ -5,8 +5,8 @@ vscodium-dockerfied.py
 Single entrypoint to build/run VSCodium docker images (standalone or remoss client).
 
 Config search / merge order:
-  1) ./conf.json
-  2) ~/.config/vscodium-dockerfied/conf.json (overrides #1 if both exist)
+  1) ./vscodium-dockerfied.conf.json
+  2) ~/.config/vscodium-dockerfied/vscodium-dockerfied.conf.json (overrides #1 if both exist)
   3) CLI overrides everything
 
 Required shell env vars for `run`:
@@ -23,9 +23,9 @@ Config format (updated):
     "CLIENT_USERNAME": "codium"
   },
   "docker_run_args": {
-    "HOST_WORKSPACE": "/home/you/github",
-    "HOST_VSCODIUM_CONFIG_DIR": "/home/you/.config/VSCodium2",
-    "HOST_VSCODIUM_VSCODE_OSS_DIR": "/home/you/.vscode-oss.VSCodium2"
+    "HOST_WORKSPACE": "~/github",
+    "HOST_VSCODIUM_CONFIG_DIR": "~/.config/VSCodium2",
+    "HOST_VSCODIUM_VSCODE_OSS_DIR": "~/.vscode-oss.VSCodium2"
   }
 }
 
@@ -33,17 +33,6 @@ Currently supported mode-specific args:
 - standalone_args.network: passed as `--network <value>` to docker run (e.g., "none", "host", "bridge")
 - remoss_args.network: if set, passed as `--network <value>` (default for remoss is "host" if not provided)
 """
-
-# Change summary:
-# - Add a helper to generate a unique, human-readable suffix: -YYYYMMDD-HHMMSS-mmm (local time)
-# - Use that suffix in docker --name for BOTH standalone + remoss containers
-#
-# Example container name:
-#   vscodium-dockerfied-standalone-20260304-152113-372
-#
-# Notes:
-# - Using milliseconds (mmm) avoids collisions when launching multiple containers quickly.
-# - If you prefer PID instead (like your example “3721”), see the alternate implementation below.
 
 from __future__ import annotations
 
@@ -56,10 +45,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 from collections.abc import Sequence
-from datetime import datetime  # NEW
+from datetime import datetime
 
 
 REQUIRED_RUN_ENV_VARS = ["XDG_RUNTIME_DIR", "WAYLAND_DISPLAY", "XAUTHORITY"]
+CONFIG_FILENAME = "vscodium-dockerfied.conf.json"
 
 
 def eprint(*args: object) -> None:
@@ -81,6 +71,16 @@ def unique_container_suffix() -> str:
     """
     now = datetime.now().astimezone()  # local tz-aware
     return f"-{now:%Y%m%d-%H%M%S}-{os.getpid()}"
+
+
+def expand_pathish_value(v: str) -> str:
+    """
+    Expand strings like:
+      "~/github" -> "/home/you/github"
+      "$HOME/github" -> "/home/you/github"
+    """
+    return os.path.expandvars(os.path.expanduser(v))
+
 
 def deep_merge(a: dict[str, Any], b: dict[str, Any]) -> dict[str, Any]:
     """Return new dict = a merged with b, where b overrides a. Nested dicts merge recursively."""
@@ -108,11 +108,11 @@ def load_json_if_exists(path: Path) -> tuple[Path, dict[str, Any]]:
 def load_config() -> dict[str, Any]:
     """
     Loads config from:
-      a) ./conf.json
-      b) ~/.config/vscodium-dockerfied/conf.json (overrides a)
+      a) ./vscodium-dockerfied.conf.json
+      b) ~/.config/vscodium-dockerfied/vscodium-dockerfied.conf.json (overrides a)
     """
-    a_path = Path.cwd() / "conf.json"
-    b_path = Path.home() / ".config" / "vscodium-dockerfied" / "conf.json"
+    a_path = Path.cwd() / CONFIG_FILENAME
+    b_path = Path.home() / ".config" / "vscodium-dockerfied" / CONFIG_FILENAME
     _, a = load_json_if_exists(a_path)
     _, b = load_json_if_exists(b_path)
     return deep_merge(a, b)
@@ -174,6 +174,9 @@ class Config:
         require_capital_keys(docker_build_args, "docker_build_args")
         require_capital_keys(docker_run_args, "docker_run_args")
 
+        # Expand ~/$VARS in docker_run_args values from JSON early
+        docker_run_args = {k: expand_pathish_value(v) for k, v in docker_run_args.items()}
+
         # CLI overrides (override JSON)
         if args.skip_build is not None:
             skip_build = args.skip_build
@@ -184,11 +187,11 @@ class Config:
             docker_build_args["CLIENT_USERNAME"] = args.client_username
 
         if args.host_workspace is not None:
-            docker_run_args["HOST_WORKSPACE"] = args.host_workspace
+            docker_run_args["HOST_WORKSPACE"] = expand_pathish_value(args.host_workspace)
         if args.host_vscodium_config_dir is not None:
-            docker_run_args["HOST_VSCODIUM_CONFIG_DIR"] = args.host_vscodium_config_dir
+            docker_run_args["HOST_VSCODIUM_CONFIG_DIR"] = expand_pathish_value(args.host_vscodium_config_dir)
         if args.host_vscodium_vscode_oss_dir is not None:
-            docker_run_args["HOST_VSCODIUM_VSCODE_OSS_DIR"] = args.host_vscodium_vscode_oss_dir
+            docker_run_args["HOST_VSCODIUM_VSCODE_OSS_DIR"] = expand_pathish_value(args.host_vscodium_vscode_oss_dir)
 
         # Optional CLI override for network per-mode
         if args.standalone_network is not None:
@@ -313,11 +316,12 @@ def run_standalone(cfg: Config) -> None:
     run_args = cfg.docker_run_args
     network_args = mode_network_args("standalone", cfg.standalone_args, default_network=None)
 
-    container_name = "vscodium-dockerfied-standalone" + unique_container_suffix()  # NEW
+    container_name = "vscodium-dockerfied-standalone" + unique_container_suffix()
 
     cmd = [
-        "docker", "run", "--rm", "-d",
-        "--name", container_name,  # CHANGED
+        "docker", "run", "--rm",
+        "-d",
+        "--name", container_name,
         *network_args,
         "--shm-size=2gb",
         "-e", "DISPLAY=:0",
@@ -339,6 +343,7 @@ def run_standalone(cfg: Config) -> None:
     ]
     run_cmd(["ls", "-alt"], cwd=workdir)
     run_cmd(cmd, cwd=workdir)
+    eprint(f"Started container: {container_name}")
 
 
 def run_remoss_client(cfg: Config) -> None:
@@ -353,11 +358,12 @@ def run_remoss_client(cfg: Config) -> None:
     # original script defaulted to host; preserve that unless overridden
     network_args = mode_network_args("remoss", cfg.remoss_args, default_network="host")
 
-    container_name = "vscodium-dockerfied-remoss-client" + unique_container_suffix()  # NEW
+    container_name = "vscodium-dockerfied-remoss-client" + unique_container_suffix()
 
     cmd = [
-        "docker", "run", "--rm", "-d",
-        "--name", container_name,  # CHANGED
+        "docker", "run", "--rm",
+        "-d",
+        "--name", container_name,
         *network_args,
         "--shm-size=2gb",
         "-e", "DISPLAY=:0",
@@ -366,6 +372,7 @@ def run_remoss_client(cfg: Config) -> None:
         "-e", f"PULSE_SERVER=unix:{env['XDG_RUNTIME_DIR']}/pulse/native",
         "-e", "XAUTHORITY=/tmp/.Xauthority",
         "-e", "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus",
+        "-e", "DOCKER_BUILDKIT=1",
         "-e", "DOCKER_BUILDKIT=1",
         "-v", f"{run_args['HOST_VSCODIUM_CONFIG_DIR']}:/home/{user}/.config/VSCodium",
         "-v", f"{run_args['HOST_VSCODIUM_VSCODE_OSS_DIR']}:/home/{user}/.vscode-oss",
@@ -379,6 +386,7 @@ def run_remoss_client(cfg: Config) -> None:
     ]
     run_cmd(["ls", "-alt"], cwd=workdir)
     run_cmd(cmd, cwd=workdir)
+    eprint(f"Started container: {container_name}")
 
 
 def build_parser() -> argparse.ArgumentParser:
