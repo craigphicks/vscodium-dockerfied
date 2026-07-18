@@ -5,9 +5,12 @@ vscodium-dockerfied.py
 Single entrypoint to build/run VSCodium docker images (standalone or remoss client).
 
 Config search / merge order:
-  1) ./vscodium-dockerfied.conf.json
-  2) ~/.config/vscodium-dockerfied/vscodium-dockerfied.conf.json (overrides #1 if both exist)
+  1) ./vscodium-dockerfied.conf.json          (or .conf.<id>.json)
+  2) ~/.config/vscodium-dockerfied/<file>    (overrides #1 if both exist)
   3) CLI overrides everything
+
+Config file <file> determined by --conf-id argument.
+If --conf-id is omitted, uses "vscodium-dockerfied.conf.json".
 
 Required shell env vars for `run`:
   XDG_RUNTIME_DIR, WAYLAND_DISPLAY, XAUTHORITY
@@ -47,9 +50,22 @@ from typing import Any
 from collections.abc import Sequence
 from datetime import datetime
 
+# import debugpy
+# if os.environ.get("DBG", "0")=="1":
+#   if not debugpy.is_client_connected():
+#     debugpy.listen(5678)
+#     debugpy.wait_for_client()  # Pause until VS Codium attaches
+
+
 
 REQUIRED_RUN_ENV_VARS = ["XDG_RUNTIME_DIR", "WAYLAND_DISPLAY", "XAUTHORITY"]
-CONFIG_FILENAME = "vscodium-dockerfied.conf.json"
+
+
+def get_config_filename(id: str = "") -> str:
+    """Return the config filename for a given configuration id."""
+    if not id:
+        return "vscodium-dockerfied.conf.json"
+    return f"vscodium-dockerfied.conf.{id}.json"
 
 
 def eprint(*args: object) -> None:
@@ -131,14 +147,18 @@ def load_json_if_exists(path: Path) -> tuple[Path, dict[str, Any]]:
     return path, data
 
 
-def load_config() -> dict[str, Any]:
+def load_config(conf_id: str = "") -> dict[str, Any]:
     """
     Loads config from:
-      a) ./vscodium-dockerfied.conf.json
-      b) ~/.config/vscodium-dockerfied/vscodium-dockerfied.conf.json (overrides a)
+      a) ./<config_filename>
+      b) ~/.config/vscodium-dockerfied/<config_filename> (overrides a)
+    The config filename is derived from the given conf_id.
     """
-    a_path = Path.cwd() / CONFIG_FILENAME
-    b_path = Path.home() / ".config" / "vscodium-dockerfied" / CONFIG_FILENAME
+    filename = get_config_filename(conf_id)
+
+    a_path = Path.cwd() / filename
+    b_path = Path.home() / ".config" / "vscodium-dockerfied" / filename
+
     _, a = load_json_if_exists(a_path)
     _, b = load_json_if_exists(b_path)
     return deep_merge(a, b)
@@ -177,7 +197,7 @@ class Config:
 
     @staticmethod
     def load(repo_root: Path, args: argparse.Namespace) -> "Config":
-        cfg = load_config()
+        cfg = load_config(conf_id=args.conf_id)
 
         skip_build = bool(cfg.get("skip_build", False))
         verbose = bool(cfg.get("verbose", False))
@@ -312,6 +332,21 @@ def build_standalone(cfg: Config) -> None:
     ]
     run_cmd(cmd, cwd=workdir, extra_env={"DOCKER_BUILDKIT": "1"}, verbose=cfg.verbose)
 
+def build_latex(cfg: Config) -> None:
+    workdir = cfg.repo_root / "vscodium-dockerfied-standalone"
+    dockerfile = "Dockerfile.latex"
+    v = cfg.docker_build_args["VSCODIUM_VER"]
+    tag = image_name("standalone-latex", v)
+
+    cmd = [
+        "docker", "build",
+        "-f", dockerfile,
+        "-t", tag,
+        *docker_build_arg_flags(cfg.docker_build_args),
+        ".",
+    ]
+    run_cmd(cmd, cwd=workdir, extra_env={"DOCKER_BUILDKIT": "1"}, verbose=cfg.verbose)
+
 
 def build_remoss_client(cfg: Config) -> None:
     workdir = cfg.repo_root / "vscodium-dockerfied-remoss-client"
@@ -339,18 +374,14 @@ def show_images(cfg: Config) -> None:
     )
 
 
-def run_standalone(cfg: Config) -> None:
-    env = require_run_env_vars_present()
-
-    workdir = cfg.repo_root / "vscodium-dockerfied-standalone"
-    v = cfg.docker_build_args["VSCODIUM_VER"]
-    user = cfg.docker_build_args["CLIENT_USERNAME"]
-    img = image_name("standalone", v)
-
-    run_args = cfg.docker_run_args
-    network_args = mode_network_args("standalone", cfg.standalone_args, default_network=None)
-
-    container_name = "vscodium-dockerfied-standalone" + unique_container_suffix()
+def get_command_list(
+    container_name: str,
+    network_args: list[str],
+    env: dict[str,str],
+    run_args: dict[str,str],
+    user: str,
+    img:str
+    )-> list[str]:
 
     cmd = [
         "docker", "run", "--rm",
@@ -375,67 +406,66 @@ def run_standalone(cfg: Config) -> None:
         "-v", f"{env['XDG_RUNTIME_DIR']}/pulse:/tmp/runtime-docker/pulse",
         img,
     ]
+    return cmd
+
+def run_container(cfg: Config, workdir: Path, img: str, network_args: list[str], container_name: str):
+    env = require_run_env_vars_present()
+    v = cfg.docker_build_args["VSCODIUM_VER"]
+    user = cfg.docker_build_args["CLIENT_USERNAME"]
+    run_args = cfg.docker_run_args
+
+    cmd = get_command_list(container_name,network_args,env,run_args,user,img)
     out = run_cmd(cmd, cwd=workdir, verbose=cfg.verbose)
 
-    # Quiet mode: print only the name
     if not cfg.verbose:
         print(container_name)
         return
 
-    # Verbose mode: docker already printed; optionally show container id too (out is empty in verbose)
     eprint(f"Started container: {container_name}")
+
+def run_standalone(cfg: Config) -> None:
+    workdir = cfg.repo_root / "vscodium-dockerfied-standalone"
+    v = cfg.docker_build_args["VSCODIUM_VER"]
+    img = image_name("standalone", v)
+    network_args = mode_network_args("standalone", cfg.standalone_args, default_network=None)
+    container_name = "vscodium-dockerfied-standalone" + unique_container_suffix()
+
+    run_container(cfg,workdir,img,network_args,container_name)
+
+def run_latex(cfg: Config) -> None:
+    workdir = cfg.repo_root / "vscodium-dockerfied-standalone"
+    v = cfg.docker_build_args["VSCODIUM_VER"]
+    img = image_name("standalone-latex", v)
+    network_args = mode_network_args("standalone", cfg.standalone_args, default_network=None)
+    container_name = "vscodium-dockerfied-latex" + unique_container_suffix()
+
+    run_container(cfg,workdir,img,network_args,container_name)
 
 
 def run_remoss_client(cfg: Config) -> None:
-    env = require_run_env_vars_present()
 
     workdir = cfg.repo_root / "vscodium-dockerfied-remoss-client"
     v = cfg.docker_build_args["VSCODIUM_VER"]
-    user = cfg.docker_build_args["CLIENT_USERNAME"]
     img = image_name("remoss-client", v)
-
-    run_args = cfg.docker_run_args
     network_args = mode_network_args("remoss", cfg.remoss_args, default_network="host")
-
     container_name = "vscodium-dockerfied-remoss-client" + unique_container_suffix()
 
-    cmd = [
-        "docker", "run", "--rm",
-        "-d",
-        "--name", container_name,
-        *network_args,
-        "--shm-size=2gb",
-        "-e", "DISPLAY=:0",
-        "-e", f"WAYLAND_DISPLAY={env['WAYLAND_DISPLAY']}",
-        "-e", "XDG_RUNTIME_DIR=/tmp/runtime-docker",
-        "-e", f"PULSE_SERVER=unix:{env['XDG_RUNTIME_DIR']}/pulse/native",
-        "-e", "XAUTHORITY=/tmp/.Xauthority",
-        "-e", "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus",
-        "-e", "DOCKER_BUILDKIT=1",
-        "-v", f"{run_args['HOST_VSCODIUM_CONFIG_DIR']}:/home/{user}/.config/VSCodium",
-        "-v", f"{run_args['HOST_VSCODIUM_VSCODE_OSS_DIR']}:/home/{user}/.vscode-oss",
-        "-v", "/tmp/.X11-unix:/tmp/.X11-unix",
-        "-v", f"{env['XAUTHORITY']}:/tmp/.Xauthority:ro",
-        "-v", f"{env['XDG_RUNTIME_DIR']}/{env['WAYLAND_DISPLAY']}:/tmp/runtime-docker/{env['WAYLAND_DISPLAY']}",
-        "-v", f"{run_args['HOST_WORKSPACE']}:/workspace",
-        "-v", "/run/user/1000/bus:/run/user/1000/bus",
-        "-v", f"{env['XDG_RUNTIME_DIR']}/pulse:/tmp/runtime-docker/pulse",
-        img,
-    ]
-    out = run_cmd(cmd, cwd=workdir, verbose=cfg.verbose)
+    run_container(cfg,workdir,img,network_args,container_name)
 
-    if not cfg.verbose:
-        print(container_name)
-        return
-
-    eprint(f"Started container: {container_name}")
 
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="vscodium-dockerfied.py")
     sub = p.add_subparsers(dest="command", required=True)
 
-    # global flag(s) – work for both build and run
+    # Global argument for configuration id (works with any subcommand)
+    p.add_argument(
+        "--conf-id",
+        dest="conf_id",
+        default="",
+        help="Configuration id (optional) - loads vscodium-dockerfied.conf.<id>.json",
+    )
+
     p.add_argument(
         "--verbose",
         "-v",
@@ -446,11 +476,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     p_build = sub.add_parser("build", help="Build docker images")
-    p_build.add_argument("target", choices=["standalone", "remoss", "base"], help="What to build")
+    p_build.add_argument("target", choices=["standalone", "latex", "remoss", "base"], help="What to build")
     p_build.add_argument("--skip-build", dest="skip_build", action=argparse.BooleanOptionalAction, default=None)
 
     p_run = sub.add_parser("run", help="Run docker images (builds first by default unless skip_build=true)")
-    p_run.add_argument("mode", choices=["standalone", "remoss"], help="Which runtime to use")
+    p_run.add_argument("mode", choices=["standalone", "latex", "remoss"], help="Which runtime to use")
     p_run.add_argument("--skip-build", dest="skip_build", action=argparse.BooleanOptionalAction, default=None)
 
     for sp in (p_build, p_run):
@@ -471,38 +501,32 @@ def main(argv: Sequence[str]) -> int:
     repo_root = Path(__file__).resolve().parent
     cfg = Config.load(repo_root, args)
 
-    if args.command == "build":
+    if args.command == "build" or (args.command == "build" and not cfg.skip_build):
         if cfg.skip_build:
             if cfg.verbose:
                 eprint("skip_build=true; build command will not build anything.")
             return 0
 
-        if args.target == "base":
+        if args.target in ["base","standalone","latex","remoss"]:
             build_base(cfg)
-        elif args.target == "standalone":
-            build_base(cfg)
+        if args.target in ["standalone","latex"]:
             build_standalone(cfg)
-        elif args.target == "remoss":
-            build_base(cfg)
+        if args.target == "latex":
+            build_latex(cfg)
+        if args.target == "remoss":
             build_remoss_client(cfg)
-        else:
-            raise ValueError(args.target)
+
 
         show_images(cfg)
         return 0
 
     if args.command == "run":
-        if not cfg.skip_build:
-            build_base(cfg)
-            if args.mode == "standalone":
-                build_standalone(cfg)
-            else:
-                build_remoss_client(cfg)
-            show_images(cfg)
 
         if args.mode == "standalone":
             run_standalone(cfg)
-        else:
+        elif args.mode == "latex":
+            run_latex(cfg)
+        elif args.mode == "remoss":
             run_remoss_client(cfg)
 
         return 0

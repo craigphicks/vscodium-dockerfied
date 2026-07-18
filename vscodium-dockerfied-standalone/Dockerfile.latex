@@ -1,0 +1,15 @@
+ARG VSCODIUM_VER=1.109.41146
+FROM vscodium-dockerfied-standalone-${VSCODIUM_VER}.img:latest
+
+# If CLIENT_USERNAME is not already available as an ENV from the base image,
+# you can pass it as a build arg (e.g. --build-arg CLIENT_USERNAME=codium).
+# Here we assume it exists (set in the base image or passed at build time).
+
+USER root
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      texlive-latex-recommended texlive-latex-extra texlive-science \
+      texlive-fonts-recommended texlive-pictures latexmk biber \
+      texlive-bibtex-extra \
+ && rm -rf /var/lib/apt/lists/*
+
+USER ${CLIENT_USERNAME}
